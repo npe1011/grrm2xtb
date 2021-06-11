@@ -1,0 +1,362 @@
+#!/usr/bin/python3
+import os
+import sys
+import shutil
+import subprocess
+
+# GRRM file name-related constants
+GRRM_INPUT_SUFFIX = '_INP4GEN.rrm'
+GRRM_OUTPUT_SUFFIX = '_OUT4GEN.rrm'
+# GRRM_PARAM_SUFFIX = '_PARAM.rrm'
+
+# XTB file name-related constants
+XTB_COMMAND = 'xtb'
+XTB_INPUT_XYZ_FILE = 'input.xyz'
+XTB_CONSTRAIN_FILE = 'constrain.inp'
+XTB_ENERGY_FILE = 'energy'
+XTB_GRADIENT_FILE = 'gradient'
+XTB_HESSIAN_FILE = 'hessian'
+XTB_OPT_XYZ_FILE = 'xtbopt.xyz'
+XTB_LOG_FILE = 'xtblog.log'
+
+# Name for environmental variables for XTB Settings
+XTB_CHARGE_ENV = 'XTB_CHARGE'
+XTB_MULTI_ENV = 'XTB_MULTI'
+XTB_SOLVENT_ENV = 'XTB_SOLVENT'
+XTB_PARAM_ENV = 'XTB_PARAM'
+
+class InputData:
+    def __init__(self, input_file):
+        if not os.path.exists(input_file):
+            throw_error(input_file + ' not found.')
+        with open(input_file, 'r') as f:
+            input_row_data = f.readlines()
+
+        # TASK line
+        task_string = input_row_data[0].split(':')[1].strip()
+        if task_string == 'MAKE GUESS':
+            self.task = 'guess'
+        elif task_string == 'MICROITERATION':
+            self.task = 'mi'
+        elif task_string == 'ENERGY':
+            self.task = 'e'
+        elif task_string == 'ENERGY and GRADIENT':
+            self.task = 'eg'
+        elif task_string == 'ENERGY, GRADIENT, and HESSIAN':
+            self.task = 'egh'
+        else:
+            throw_error(input_file + ' contains unexpected task type: ' + task_string)
+
+        # neglect GUESS and STATE lines
+
+        # NACTIVEATOM / NATOM: M / N
+        self.num_activation_atom, self.num_atom = [int(x.strip()) for x in input_row_data[3].split(':')[1].split('/')]
+
+        # atom coordinates
+        self.atom_coordinates = [line.replace('\t', '    ') for line in input_row_data[4:4+self.num_atom]]
+
+        # NFROZENATOM: N
+        self.num_frozen_atom = int(input_row_data[4+self.num_atom].split(':')[1].strip())
+
+        # frozen atom coordinates
+        if self.num_frozen_atom > 0:
+            self.frozen_atom_coordinates = [line.replace('\t', '    ') for line \
+                                            in input_row_data[5+self.num_atom:5+self.num_atom+self.num_frozen_atom]]
+        else:
+            self.frozen_atom_coordinates = []
+
+def throw_error(message):
+    print(message, file=sys.stderr)
+    sys.exit(-1)
+
+def read_hessian(hessian_file, num_atom):
+    """
+    read hessian file by XTB and return (num_atom*3)x(num_atom*3) list <str>
+    :param hessian_file:
+    :param num_atom: number of atoms
+    """
+
+    if not os.path.exists(hessian_file):
+        throw_error(hessian_file + ' not found.')
+    with open(hessian_file, 'r') as f:
+        hessian_data = f.readlines()
+
+    assert hessian_data[0].strip().startswith('$hessian')
+
+    hess_1d = []
+    for line in hessian_data[1:]:
+        if line.strip() == '':
+            continue
+        if line.strip().startswith('$end'):
+            break
+        hess_1d.extend(line.strip().split())
+
+    assert len(hess_1d) == (num_atom*3)**2
+
+    # 1d to NxN
+    return [hess_1d[i:i + num_atom*3] for i in range(0, len(hess_1d), num_atom*3)]
+
+def read_energy(energy_file):
+    """
+    return energy in str from energy_file
+    """
+
+    if not os.path.exists(energy_file):
+        throw_error(energy_file + ' not found.')
+    with open(energy_file, 'r') as f:
+        energy_data = f.readlines()
+
+    assert energy_data[0].strip().startswith('$energy')
+    return energy_data[1].strip().split()[1]
+
+def read_gradient(gradient_file, num_atom):
+    """
+    read gradient file by XTB and return (num_atom)x(3) list <str>
+    :param gradient_file:
+    :param num_atom: number of atoms
+    """
+
+    if not os.path.exists(gradient_file):
+        throw_error(gradient_file + ' not found.')
+    with open(gradient_file, 'r') as f:
+        gradient_data = f.readlines()
+
+    assert gradient_data[0].strip().startswith('$grad')
+
+    gradient = []
+    for line in gradient_data[2+num_atom:2+2*num_atom]:
+        gradient.append(line.strip().split())
+
+    return gradient
+
+def read_xyz(xyz_file):
+    """
+    read xyz file and return coordinates in str list
+    :param xyz_file:
+    """
+
+    if not os.path.exists(xyz_file):
+        throw_error(xyz_file + ' not found.')
+    with open(xyz_file, 'r') as f:
+        xyz_data = f.readlines()
+
+    num_atom = int(xyz_data[0].strip())
+    return xyz_data[2:2+num_atom]
+
+def resize_hessian(hessian, num_atom):
+    size_n = num_atom * 3
+    if size_n >= len(hessian):
+        return hessian
+    resized_hessian = []
+    for line in hessian[0:size_n]:
+        resized_hessian.append(line[0:size_n])
+    return resized_hessian
+
+def resize_gradient(gradient, num_atom):
+    if num_atom >= len(gradient):
+        return gradient
+    return gradient[0:num_atom]
+
+def convert_hessian_to_grrm(hessian):
+    """
+    convert hessian (3N*3N list) for GRRM format and return in str list (for writelines)
+    :param hessian:
+    """
+    if len(hessian) % 5 == 0:
+        num_block = len(hessian)//5
+    else:
+        num_block = len(hessian)//5 + 1
+
+    formatted_hessian = []
+    for block in range(num_block):
+        for row in range(5*block, len(hessian)):
+            line = ''
+            for col in range(5*block, min(5*block+5, len(hessian), row+1)):
+                line += ' {:>16}'.format(hessian[row][col])
+            line += '\n'
+            formatted_hessian.append(line)
+
+    return formatted_hessian
+
+def convert_gradient_to_grrm(gradient):
+    """
+    convert gradient (num_atom*3 list) for GRRM format and return in str list (for writelines)
+    """
+    grrm_gradient = []
+    for line in gradient:
+        grrm_gradient.extend(['  ' + x + '\n' for x in line])
+    return grrm_gradient
+
+def get_dummy_hessian_grrm(num_atom):
+    size_n = num_atom * 3
+    hessian = [['0.000000000000' for m in range(size_n)] for n in range(size_n)]
+    return convert_hessian_to_grrm(hessian)
+
+def get_dummy_gradient_grrm(num_atom):
+    return ['  0.000000000000\n' for n in range(num_atom*3)]
+
+def get_dummy_dipole_derivatives(num_atom):
+    return ['  0.000000000000  0.000000000000  0.000000000000\n'for n in range(num_atom*3)]
+
+def prepare_xyz_file(input_data, xyz_file):
+    num_atom = input_data.num_atom + input_data.num_frozen_atom
+    with open(xyz_file, 'w') as f:
+        f.write(str(num_atom) + '\ncoord\n')
+        f.writelines(input_data.atom_coordinates)
+        if input_data.num_frozen_atom > 0:
+            f.writelines(input_data.frozen_atom_coordinates)
+
+def prepare_constrain_file(input_data, constrain_file):
+    input_data : InputData
+
+    if input_data.task == 'mi':
+        with open(constrain_file, 'w') as f:
+            f.write('$fix\n')
+
+            # for miscroiteration fixing
+            start_freeze = 1
+            end_freeze = input_data.num_activation_atom
+            if start_freeze != end_freeze:
+                f.write('    atoms: {:}-{:}'.format(start_freeze, end_freeze))
+            else:
+                f.write('    atoms: {:}'.format(start_freeze))
+
+            # for frozen atom fixing
+            if input_data.num_frozen_atom > 0:
+                start_freeze = input_data.num_atom + 1
+                end_freeze = start_freeze + input_data.num_frozen_atom - 1
+                if start_freeze != end_freeze:
+                    f.write(',{:}-{:}\n'.format(start_freeze, end_freeze))
+                else:
+                    f.write('{:}\n'.format(start_freeze))
+            else:
+                f.write('\n')
+
+            f.write('$end\n')
+
+        return True
+    else:
+        # for frozen atom fixing
+        if input_data.num_frozen_atom > 0:
+            with open(constrain_file, 'w') as f:
+                f.write('$fix\n')
+                start_freeze = input_data.num_atom + 1
+                end_freeze = start_freeze + input_data.num_frozen_atom - 1
+                if start_freeze != end_freeze:
+                    f.write('    atoms: {:}-{:}\n'.format(start_freeze, end_freeze))
+                else:
+                    f.write('    atoms: {:}\n'.format(start_freeze))
+                f.write('$end\n')
+            return True
+        else:
+            return False
+
+if __name__ == '__main__':
+    args = sys.argv
+    job_name = args[1]
+    work_dir = job_name + '_' + str(os.getpid())
+
+    input_file = job_name + GRRM_INPUT_SUFFIX
+    output_file = job_name + GRRM_OUTPUT_SUFFIX
+    # param_file = job_name + GRRM_PARAM_SUFFIX
+
+    input_data = InputData(input_file)
+
+    # GUESS is not available!
+    if input_data.task == 'guess':
+        throw_error('TASK GUESS is unavailable with XTB.')
+
+    # Run XTB in working directory
+    os.mkdir(work_dir)
+    os.chdir(work_dir)
+    prepare_xyz_file(input_data, XTB_INPUT_XYZ_FILE)
+    constrain_flag = prepare_constrain_file(input_data, XTB_CONSTRAIN_FILE)
+    xtb_commands = ['xtb']
+    if input_data.task == 'mi':
+        xtb_commands.append('--opt')
+    if constrain_flag:
+        xtb_commands.extend(['--input', XTB_CONSTRAIN_FILE])
+    charge = '0'
+    xtb_charge = os.environ.get(XTB_CHARGE_ENV)
+    if xtb_charge is not None:
+        if len(xtb_charge.strip()) > 0:
+            charge = xtb_charge.strip()
+    spin = '0'
+    xtb_multi = os.environ.get(XTB_MULTI_ENV)
+    if xtb_multi is not None:
+        if len(xtb_multi.strip()) > 0:
+            spin = str(int(xtb_multi.strip()) - 1)
+    xtb_commands.extend(['--chrg', charge, '--uhf', spin])
+    solvent = os.environ.get(XTB_SOLVENT_ENV)
+    if solvent is not None:
+        if len(solvent.strip()) > 0:
+            xtb_commands.extend(['-g', solvent.strip()])
+    xtb_param = os.environ.get(XTB_PARAM_ENV)
+    if xtb_param is not None:
+        if len(xtb_param.strip()) > 0:
+            xtb_commands.extend(['--gfn', xtb_param.strip()])
+    if input_data.task == 'egh':
+        xtb_commands.extend(['--hess', '--grad'])
+    elif input_data.task in ['eg', 'mi']:
+        xtb_commands.append('--grad')
+    xtb_commands.extend([XTB_INPUT_XYZ_FILE])
+    # print(xtb_commands) # debug
+    with open(XTB_LOG_FILE, 'w') as f:
+        subprocess.run(xtb_commands, stdout=f)
+
+    # Read data
+    full_num_atom = input_data.num_atom + input_data.num_frozen_atom
+    if input_data.task == 'mi':
+        opt_coordinates = read_xyz(XTB_OPT_XYZ_FILE)
+        energy = read_energy(XTB_ENERGY_FILE)
+        gradient = read_gradient(XTB_GRADIENT_FILE, full_num_atom)
+    elif input_data.task == 'e':
+        energy = read_energy(XTB_ENERGY_FILE)
+    elif input_data.task == 'eg':
+        energy = read_energy(XTB_ENERGY_FILE)
+        gradient = read_gradient(XTB_GRADIENT_FILE, full_num_atom)
+    elif input_data.task == 'egh':
+        energy = read_energy(XTB_ENERGY_FILE)
+        gradient = read_gradient(XTB_GRADIENT_FILE, full_num_atom)
+        hessian = read_hessian(XTB_HESSIAN_FILE, full_num_atom)
+
+    # Retrun to the parent directory
+    os.chdir('../')
+
+    # Prepare output file for GRRM
+    output_data = []
+    output_data.append('RESULTS\n')
+    output_data.append('CURRENT COORDINATE\n')
+    if input_data.task == 'mi':
+        output_data.extend(opt_coordinates[0:input_data.num_atom])
+    else:
+        output_data.extend(input_data.atom_coordinates)
+    output_data.append('ENERGY =  {:}  0.000000000000  0.000000000000\n'.format(energy))
+    output_data.append('       =  0.000000000000  0.000000000000  0.000000000000\n')
+    output_data.append('S**2   =  0.000000000000\n')
+    output_data.append('GRADIENT\n')
+    if input_data.task in ['mi', 'eg', 'egh']:
+        gradient = resize_gradient(gradient, input_data.num_atom)
+        output_data.extend(convert_gradient_to_grrm(gradient))
+    else:
+        output_data.extend(get_dummy_gradient_grrm(input_data.num_atom))
+    output_data.append('DIPOLE =  0.000000000000  0.000000000000  0.000000000000\n')
+    output_data.append('HESSIAN\n')
+    if input_data.task == 'egh':
+        hessian = resize_hessian(hessian, input_data.num_atom)
+        output_data.extend(convert_hessian_to_grrm(hessian))
+    else:
+        output_data.extend(get_dummy_hessian_grrm(input_data.num_atom))
+    output_data.append('DIPOLE DERIVATIVES\n')
+    output_data.extend(get_dummy_dipole_derivatives(input_data.num_atom))
+    output_data.append('POLARIZABILITY\n')
+    output_data.append('  0.000000000000\n')
+    output_data.append('  0.000000000000  0.000000000000\n')
+    output_data.append('  0.000000000000  0.000000000000  0.000000000000\n')
+    with open(output_file, 'w') as f:
+        f.writelines(output_data)
+
+    # Clean-up
+    shutil.rmtree(work_dir)  # debug
+
+
