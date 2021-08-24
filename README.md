@@ -5,7 +5,7 @@ This is a Python3 script to use Grimme's XTB [https://github.com/grimme-lab/xtb]
 While we tried several MIN, SADDLE, SC-AFIR, and MC-AFIR jobs and this script seems to reasonably work, we provide *NO guarantee*.
 
 ## Software verson
-We use this script with GRRM17, xtb-6.3.3, adn Python 3.6.7/3.6.8. Other versions have not been tested.
+We use this script with GRRM17, xtb-6.3.3, and Python 3.6.7/3.6.8. Other versions have not been tested.
 
 ## Settings
 
