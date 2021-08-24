@@ -4,6 +4,9 @@
 This is a Python3 script to use Grimme's XTB [https://github.com/grimme-lab/xtb] as a QM engine for GRRM17.
 While we tried several MIN, SADDLE, SC-AFIR, and MC-AFIR jobs and this script seems to reasonably work, we provide *NO guarantee*.
 
+## Software verson
+We use this script with GRRM17, xtb-6.3.3, adn Python 3.6.7/3.6.8. Other versions have not been tested.
+
 ## Settings
 
  - Set environmental variables and PATH for XTB. XTB should be able to run with a command `xtb`. 
