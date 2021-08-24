@@ -2,7 +2,7 @@
 
 ## Abstract
 This is a Python3 script to use Grimme's XTB [https://github.com/grimme-lab/xtb] as a QM engine for GRRM17.
-Whie we tried several MIN, SADDLE, SC-AFIR, and MC-AFIR jobs and this script seems to reasonably work, we provide NO guarantee.
+While we tried several MIN, SADDLE, SC-AFIR, and MC-AFIR jobs and this script seems to reasonably work, we provide *NO guarantee*.
 
 ## Settings
 
