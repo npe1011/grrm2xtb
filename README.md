@@ -49,11 +49,11 @@ How many cores are used in each XTB job can be set as a standard way for XTB [ht
 In AFIR or other multi-process jobs in GRRM, these variables should be appropriately set.
 If you set `OMP_NUM_THREADS=4,1` and run GRRM with 4 parallel processes, 4\*4=16 cpus will be used.
 Generally, XTB calculations are very fast for small organic and organometallic compounds (less than 100-200 atoms),
-Setting `OMP_NUM_THREADS=1,1` and increasing the GRRM processes as many as possible may be a good way for SC-AFIR and MC-AFIR search.
+setting `OMP_NUM_THREADS=1,1` and increasing the GRRM processes as many as possible may be a good way for SC-AFIR and MC-AFIR search.
 
 ## Run GRRM17
 
 After setting the all required envirionmental variables, run GRRM as usual.
 
-*Caution:* In the output, DIPOLE、POLARIZABILITY、S\**2 are always 0. This script is just for a rough search for structures.
+*Caution:* In the output, DIPOLE,POLARIZABILITY, and S\**2 are always 0. This script is just for a rough search for structures.
 
