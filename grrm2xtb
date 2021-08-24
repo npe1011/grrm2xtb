@@ -302,7 +302,7 @@ if __name__ == '__main__':
     xtb_commands.extend([XTB_INPUT_XYZ_FILE])
     # print(xtb_commands) # debug
     with open(XTB_LOG_FILE, 'w') as f:
-        subprocess.run(xtb_commands, stdout=f)
+        subprocess.run(xtb_commands, stdout=f, stderr=f)
 
     # Read data
     full_num_atom = input_data.num_atom + input_data.num_frozen_atom
