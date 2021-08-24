@@ -297,7 +297,7 @@ if __name__ == '__main__':
             xtb_commands.extend(['--gfn', xtb_param.strip()])
     if input_data.task == 'egh':
         xtb_commands.extend(['--hess', '--grad'])
-    elif input_data.task in ['eg', 'mi']:
+    elif input_data.task in ['e', 'eg', 'mi']:
         xtb_commands.append('--grad')
     xtb_commands.extend([XTB_INPUT_XYZ_FILE])
     # print(xtb_commands) # debug
