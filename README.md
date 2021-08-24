@@ -4,7 +4,7 @@
 This is a Python3 script to use Grimme's XTB [https://github.com/grimme-lab/xtb] as a QM engine for GRRM17.
 While we tried several MIN, SADDLE, SC-AFIR, and MC-AFIR jobs and this script seems to reasonably work, we provide *NO guarantee*.
 
-## Software verson
+## Software version
 We use this script with GRRM17, xtb-6.3.3, and Python 3.6.7/3.6.8. Other versions have not been tested.
 
 ## Settings
@@ -32,7 +32,8 @@ sublink=grrm2xtb
 
 The calculation settings for XTB (charge, spin multiplicity, solvation, XTB version) need to be given as environmental variables (see below), NOT in the GRRM input.
 The charge and multiplicity in the GRRM input are neglected and have no effect.
-In case no environmental variables are set, the default settings are used (charge = 0, multiplicity = 1, gas phase, GFN2)
+In case no environmental variables are set, the default settings are used (charge = 0, multiplicity = 1, gas phase, GFN2).
+`XTB_MULTI` should be a spin multiplicity like in Gaussian or GRRM, not Na-Nb (--uhf for XTB). Internally, `--uhf` is set to multiplicity-1. 
 
 ```
 export XTB_CHARGE=0
