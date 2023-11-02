@@ -5,7 +5,7 @@ This is a Python3 script to use Grimme's XTB [https://github.com/grimme-lab/xtb]
 While we tried several MIN, SADDLE, SC-AFIR, and MC-AFIR jobs and this script seems to reasonably work, we provide *NO guarantee*.
 
 ## Software version
-We use this script with GRRM17, xtb-6.3.3, and Python 3.6.7/3.6.8. Other versions have not been tested.
+We use this script with GRRM17, xtb-6.5 and newers, and Python 3.6.7/3.6.8. Other versions have not been tested.
 
 ## Settings
 
@@ -38,6 +38,7 @@ In case no environmental variables are set, the default settings are used (charg
 ```
 export XTB_CHARGE=0
 export XTB_MULTI=1
+export XTB_SOLVATION=ALPB
 export XTB_SOLVENT=CH2Cl2
 export XTB_PARAM=2
 ```
