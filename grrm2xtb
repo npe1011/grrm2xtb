@@ -1,4 +1,5 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
+
 import os
 import sys
 import shutil
@@ -7,7 +8,6 @@ import subprocess
 # GRRM file name-related constants
 GRRM_INPUT_SUFFIX = '_INP4GEN.rrm'
 GRRM_OUTPUT_SUFFIX = '_OUT4GEN.rrm'
-# GRRM_PARAM_SUFFIX = '_PARAM.rrm'
 
 # XTB file name-related constants
 XTB_COMMAND = 'xtb'
@@ -22,8 +22,11 @@ XTB_LOG_FILE = 'xtblog.log'
 # Name for environmental variables for XTB Settings
 XTB_CHARGE_ENV = 'XTB_CHARGE'
 XTB_MULTI_ENV = 'XTB_MULTI'
+XTB_SOLVATION_ENV = 'XTB_SOLVATION'
 XTB_SOLVENT_ENV = 'XTB_SOLVENT'
 XTB_PARAM_ENV = 'XTB_PARAM'
+XTB_KEEP_LOG_ENV = 'XTB_KEEP_LOG'
+
 
 class InputData:
     def __init__(self, input_file):
@@ -65,9 +68,11 @@ class InputData:
         else:
             self.frozen_atom_coordinates = []
 
+
 def throw_error(message):
     print(message, file=sys.stderr)
     sys.exit(-1)
+
 
 def read_hessian(hessian_file, num_atom):
     """
@@ -96,6 +101,7 @@ def read_hessian(hessian_file, num_atom):
     # 1d to NxN
     return [hess_1d[i:i + num_atom*3] for i in range(0, len(hess_1d), num_atom*3)]
 
+
 def read_energy(energy_file):
     """
     return energy in str from energy_file
@@ -108,6 +114,7 @@ def read_energy(energy_file):
 
     assert energy_data[0].strip().startswith('$energy')
     return energy_data[1].strip().split()[1]
+
 
 def read_gradient(gradient_file, num_atom):
     """
@@ -129,6 +136,7 @@ def read_gradient(gradient_file, num_atom):
 
     return gradient
 
+
 def read_xyz(xyz_file):
     """
     read xyz file and return coordinates in str list
@@ -143,6 +151,7 @@ def read_xyz(xyz_file):
     num_atom = int(xyz_data[0].strip())
     return xyz_data[2:2+num_atom]
 
+
 def resize_hessian(hessian, num_atom):
     size_n = num_atom * 3
     if size_n >= len(hessian):
@@ -152,10 +161,12 @@ def resize_hessian(hessian, num_atom):
         resized_hessian.append(line[0:size_n])
     return resized_hessian
 
+
 def resize_gradient(gradient, num_atom):
     if num_atom >= len(gradient):
         return gradient
     return gradient[0:num_atom]
+
 
 def convert_hessian_to_grrm(hessian):
     """
@@ -178,6 +189,7 @@ def convert_hessian_to_grrm(hessian):
 
     return formatted_hessian
 
+
 def convert_gradient_to_grrm(gradient):
     """
     convert gradient (num_atom*3 list) for GRRM format and return in str list (for writelines)
@@ -187,16 +199,20 @@ def convert_gradient_to_grrm(gradient):
         grrm_gradient.extend(['  ' + x + '\n' for x in line])
     return grrm_gradient
 
+
 def get_dummy_hessian_grrm(num_atom):
     size_n = num_atom * 3
     hessian = [['0.000000000000' for m in range(size_n)] for n in range(size_n)]
     return convert_hessian_to_grrm(hessian)
 
+
 def get_dummy_gradient_grrm(num_atom):
     return ['  0.000000000000\n' for n in range(num_atom*3)]
 
+
 def get_dummy_dipole_derivatives(num_atom):
     return ['  0.000000000000  0.000000000000  0.000000000000\n'for n in range(num_atom*3)]
+
 
 def prepare_xyz_file(input_data, xyz_file):
     num_atom = input_data.num_atom + input_data.num_frozen_atom
@@ -205,6 +221,7 @@ def prepare_xyz_file(input_data, xyz_file):
         f.writelines(input_data.atom_coordinates)
         if input_data.num_frozen_atom > 0:
             f.writelines(input_data.frozen_atom_coordinates)
+
 
 def prepare_constrain_file(input_data, constrain_file):
     input_data : InputData
@@ -251,6 +268,7 @@ def prepare_constrain_file(input_data, constrain_file):
         else:
             return False
 
+
 if __name__ == '__main__':
     args = sys.argv
     job_name = args[1]
@@ -271,36 +289,69 @@ if __name__ == '__main__':
     os.chdir(work_dir)
     prepare_xyz_file(input_data, XTB_INPUT_XYZ_FILE)
     constrain_flag = prepare_constrain_file(input_data, XTB_CONSTRAIN_FILE)
+
+    # prep xtb command
     xtb_commands = ['xtb']
+
+    # opt job if micro iteration is called
     if input_data.task == 'mi':
         xtb_commands.append('--opt')
     if constrain_flag:
         xtb_commands.extend(['--input', XTB_CONSTRAIN_FILE])
+
+    # charge
     charge = '0'
     xtb_charge = os.environ.get(XTB_CHARGE_ENV)
     if xtb_charge is not None:
         if len(xtb_charge.strip()) > 0:
             charge = xtb_charge.strip()
+    xtb_commands.extend(['--chrg', charge])
+
+    # mult, uhf
     spin = '0'
     xtb_multi = os.environ.get(XTB_MULTI_ENV)
     if xtb_multi is not None:
         if len(xtb_multi.strip()) > 0:
             spin = str(int(xtb_multi.strip()) - 1)
-    xtb_commands.extend(['--chrg', charge, '--uhf', spin])
+    xtb_commands.extend(['--uhf', spin])
+
+    # solvation and solvent
+    solvation_flag = False
+    solvent_flag = False
+    solvation = os.environ.get(XTB_SOLVATION_ENV)
     solvent = os.environ.get(XTB_SOLVENT_ENV)
+    if solvation is not None:
+        solvation = solvation.strip().lower()
+        if solvation in ['gbsa', 'alpb']:
+            solvation_flag = True
+        else:
+            throw_error('Solvation is invalid. Use gbsa or alpb. Exit.')
     if solvent is not None:
         if len(solvent.strip()) > 0:
-            xtb_commands.extend(['-g', solvent.strip()])
+            solvent = solvent.strip().lower()
+            solvent_flag = True
+    # sanity check and set command
+    if solvation_flag and solvent_flag:
+        xtb_commands.extend(['--{:}'.format(solvation), solvent])
+    elif solvation_flag:
+        throw_error('Solvation is turned on but solvent is not specified. Exit.')
+    elif solvent_flag:
+        throw_error('Solvation model is not selected but solvent is specified. Exit.')
+
+    # param (gfn1/2/ff)
     xtb_param = os.environ.get(XTB_PARAM_ENV)
     if xtb_param is not None:
         if len(xtb_param.strip()) > 0:
             xtb_commands.extend(['--gfn', xtb_param.strip()])
+
+    # task
     if input_data.task == 'egh':
         xtb_commands.extend(['--hess', '--grad'])
     elif input_data.task in ['e', 'eg', 'mi']:
         xtb_commands.append('--grad')
     xtb_commands.extend([XTB_INPUT_XYZ_FILE])
-    # print(xtb_commands) # debug
+
+    # Run XTB and save log
     with open(XTB_LOG_FILE, 'w') as f:
         subprocess.run(xtb_commands, stdout=f, stderr=f)
 
@@ -320,7 +371,7 @@ if __name__ == '__main__':
         gradient = read_gradient(XTB_GRADIENT_FILE, full_num_atom)
         hessian = read_hessian(XTB_HESSIAN_FILE, full_num_atom)
 
-    # Retrun to the parent directory
+    # Return to the parent directory
     os.chdir('../')
 
     # Prepare output file for GRRM
@@ -356,7 +407,11 @@ if __name__ == '__main__':
     with open(output_file, 'w') as f:
         f.writelines(output_data)
 
-    # Clean-up
-    shutil.rmtree(work_dir)  # debug
-
-
+    # check flag to keep log files
+    keep_log_flag = False
+    xtb_keep_log = os.environ.get(XTB_KEEP_LOG_ENV)
+    if xtb_keep_log is not None:
+        if xtb_keep_log.strip().lower() in ['t', 'true', '1', 'y', 'yes', 'on']:
+            keep_log_flag = True
+    if not keep_log_flag:
+        shutil.rmtree(work_dir)
