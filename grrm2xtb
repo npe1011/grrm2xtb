@@ -4,6 +4,8 @@ import os
 import sys
 import shutil
 import subprocess
+import tempfile
+from pathlib import Path
 
 # GRRM file name-related constants
 GRRM_INPUT_SUFFIX = '_INP4GEN.rrm'
@@ -25,6 +27,7 @@ XTB_MULTI_ENV = 'XTB_MULTI'
 XTB_SOLVATION_ENV = 'XTB_SOLVATION'
 XTB_SOLVENT_ENV = 'XTB_SOLVENT'
 XTB_PARAM_ENV = 'XTB_PARAM'
+XTB_SCRATCH_DIR_ENV = 'XTB_SCRATCH_DIR'
 XTB_KEEP_LOG_ENV = 'XTB_KEEP_LOG'
 
 
@@ -272,10 +275,28 @@ def prepare_constrain_file(input_data, constrain_file):
 if __name__ == '__main__':
     args = sys.argv
     job_name = args[1]
-    work_dir = job_name + '_' + str(os.getpid())
 
-    input_file = job_name + GRRM_INPUT_SUFFIX
-    output_file = job_name + GRRM_OUTPUT_SUFFIX
+    orig_dir = os.getcwd()
+
+    # path settings
+    scratch_dir = os.environ.get(XTB_SCRATCH_DIR_ENV)
+    if scratch_dir is None:
+        scratch_dir = Path(os.getcwd()).resolve()
+    else:
+        scratch_dir = Path(scratch_dir).resolve()
+    
+    # prepare scratch directory
+    try:
+        if not scratch_dir.exists():
+            scratch_dir.mkdir(parents=True)
+    except Exception as e:
+        throw_error('Failed to create scratch directory...')
+    
+    # working directory
+    work_dir = tempfile.mkdtemp(prefix=job_name + '_', suffix=str(os.getpid()), dir=scratch_dir)
+
+    input_file = Path(job_name + GRRM_INPUT_SUFFIX).resolve()
+    output_file = Path(job_name + GRRM_OUTPUT_SUFFIX).resolve()
     # param_file = job_name + GRRM_PARAM_SUFFIX
 
     input_data = InputData(input_file)
@@ -285,7 +306,6 @@ if __name__ == '__main__':
         throw_error('TASK GUESS is unavailable with XTB.')
 
     # Run XTB in working directory
-    os.mkdir(work_dir)
     os.chdir(work_dir)
     prepare_xyz_file(input_data, XTB_INPUT_XYZ_FILE)
     constrain_flag = prepare_constrain_file(input_data, XTB_CONSTRAIN_FILE)
@@ -371,8 +391,8 @@ if __name__ == '__main__':
         gradient = read_gradient(XTB_GRADIENT_FILE, full_num_atom)
         hessian = read_hessian(XTB_HESSIAN_FILE, full_num_atom)
 
-    # Return to the parent directory
-    os.chdir('../')
+    # Return to the original job directory
+    os.chdir(orig_dir)
 
     # Prepare output file for GRRM
     output_data = []
@@ -415,3 +435,4 @@ if __name__ == '__main__':
             keep_log_flag = True
     if not keep_log_flag:
         shutil.rmtree(work_dir)
+        
