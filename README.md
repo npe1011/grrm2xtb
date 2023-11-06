@@ -34,6 +34,7 @@ The calculation settings for XTB (charge, spin multiplicity, solvation, XTB vers
 The charge and multiplicity in the GRRM input are neglected and have no effect.
 In case no environmental variables are set, the default settings are used (charge = 0, multiplicity = 1, gas phase, GFN2).
 `XTB_MULTI` should be a spin multiplicity like in Gaussian or GRRM, not Na-Nb (--uhf for XTB). Internally, `--uhf` is set to multiplicity-1. 
+XTB calculations are done in sub-directories in XTB_SCRATCH_DIR. If not provided, sub-directories are prepared in the GRRM working directory. 
 
 ```
 export XTB_CHARGE=0
@@ -41,6 +42,7 @@ export XTB_MULTI=1
 export XTB_SOLVATION=ALPB
 export XTB_SOLVENT=CH2Cl2
 export XTB_PARAM=2
+export XTB_SCRATCH_DIR=/path/to/scratch/directory
 ```
 
 ## Parallelization
