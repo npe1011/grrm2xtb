@@ -1,6 +1,8 @@
 # grrm2xtb
 
 ## Abstract
+* Now C++ implementation is available [https://github.com/npe1011/grrm2xtb_cpp], which shows a smaller overhead.*
+
 This is a Python3 script to use Grimme's XTB [https://github.com/grimme-lab/xtb] as a QM engine for GRRM17.
 While we tried several MIN, SADDLE, SC-AFIR, and MC-AFIR jobs and this script seems to reasonably work, we provide *NO guarantee*.
 
